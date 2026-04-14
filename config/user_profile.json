@@ -1,0 +1,66 @@
+{
+  "name": "Badrinath Radhakrishnan",
+  "email": "rbadri01@gmail.com",
+  "phone": "+1 631-747-8397",
+  "linkedin_url": "https://www.linkedin.com/in/badrinathradhakrishnan/",
+  "github_url": "https://github.com/rbadri91",
+  "current_location": "Dallas, TX",
+
+  "target_role": "Senior Software Engineer",
+  "target_seniority": "Senior",
+  "alternate_titles": [
+    "Senior Software Engineer",
+    "Staff Software Engineer",
+    "Senior Backend Engineer",
+    "Senior Java Engineer",
+    "Senior Platform Engineer",
+    "AI Platform Engineer"
+  ],
+
+  "location_preference": {
+    "preferred_cities": ["San Francisco", "Seattle", "Los Angeles", "San Jose", "Sunnyvale", "Mountain View", "Portland"],
+    "remote_ok": true,
+    "open_to_relocation": true,
+    "country": "United States"
+  },
+
+  "visa": {
+    "requires_sponsorship": true,
+    "visa_type": "H-1B",
+    "note": "Only apply to companies that are known H-1B sponsors"
+  },
+
+  "outreach_tone": "formal",
+
+  "key_differentiator": "Productionized MCP gateway on Kubernetes at Goldman Sachs enabling LLM apps to securely call internal tools and access proprietary trading data — early enterprise-scale GenAI platform engineering at a major investment bank. 10+ years Java distributed systems at Goldman Sachs and Amazon.",
+
+  "skills": {
+    "primary_languages": ["Java", "Python", "SQL", "JavaScript", "TypeScript"],
+    "frameworks": ["Spring Boot", "Spring", "Hibernate", "React"],
+    "infrastructure": ["AWS", "Docker", "Kubernetes", "Kafka"],
+    "databases": ["PostgreSQL", "MongoDB", "DynamoDB"],
+    "genai": ["MCP", "LLM orchestration", "tool use patterns", "secure data access"],
+    "practices": ["microservices", "REST APIs", "CI/CD", "observability", "on-call"]
+  },
+
+  "experience_highlights": [
+    "Productionized MCP gateway on Kubernetes at Goldman Sachs for secure LLM tool orchestration",
+    "Built low-latency execution APIs with p95 15ms response time",
+    "Scaled Kafka pipelines supporting 60% YoY volume growth at 99.9% uptime",
+    "Owned distributed payment services at Amazon (Spring Boot, AWS)",
+    "Modernized mission-critical risk logic from proprietary languages to Java microservices"
+  ],
+
+  "years_of_experience": 10,
+  "current_company": "Goldman Sachs",
+  "previous_companies": ["Amazon", "Stony Brook Medicine", "Zoho Corporation"],
+
+  "search_keywords_include": [
+    "Java", "distributed systems", "microservices", "backend", "platform",
+    "LLM", "AI platform", "Kubernetes", "Spring Boot"
+  ],
+  "search_keywords_exclude": [
+    "frontend only", "mobile", "iOS", "Android", "C++", "Rust",
+    "defense", "military", "no sponsorship", "US citizen only", "security clearance required"
+  ]
+}
