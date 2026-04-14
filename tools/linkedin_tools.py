@@ -180,48 +180,80 @@ async def _extract_profiles_from_page(
     Uses JS to query anchor tags pointing to /in/ profiles alongside their
     surrounding text — more robust than CSS class selectors which LinkedIn
     rotates frequently.
+
+    LinkedIn (2025) renders results as <div> cards with hashed class names —
+    no stable <li> containers. Strategy: collect all /in/ links, skip any
+    that are nested inside another <a> tag (those are mutual-connection links),
+    then deduplicate by URL and walk up to the result-card boundary to get
+    the card's full text.
     """
-    # Pull all profile links + surrounding card text via JS
     cards_data: list[dict] = await page.evaluate("""() => {
         const results = [];
-        // LinkedIn wraps each person result in a <li> that contains an <a href="/in/...">
-        document.querySelectorAll('a[href*="/in/"]').forEach(a => {
-            const href = a.href.split('?')[0];
-            // Avoid duplicate profile links (nav bar, suggested connections etc.)
-            if (!href.includes('/in/') || results.some(r => r.url === href)) return;
-            // Walk up to find the result card container (up to 6 levels)
-            let container = a;
-            for (let i = 0; i < 6; i++) {
-                if (!container.parentElement) break;
-                container = container.parentElement;
-                if (container.tagName === 'LI') break;
+        const seenUrls = new Set();
+
+        // LinkedIn (2025) wraps the entire profile result card in one <a> tag.
+        // Mutual-connection links inside that card are nested <a> tags.
+        // Strategy: collect top-level /in/ anchors only (no <A> ancestor),
+        // then use the anchor's own innerText as the full card content.
+
+        function hasAnchorAncestor(el) {
+            let p = el.parentElement;
+            while (p) {
+                if (p.tagName === 'A') return true;
+                p = p.parentElement;
             }
-            const text = container.innerText || '';
-            results.push({ url: href, text: text.trim() });
+            return false;
+        }
+
+        const allLinks = document.querySelectorAll('a[href*="/in/"]');
+        allLinks.forEach(a => {
+            if (hasAnchorAncestor(a)) return;
+
+            const href = a.href.split('?')[0];
+            if (!href.includes('/in/') || seenUrls.has(href)) return;
+            seenUrls.add(href);
+
+            // Full card text is a.innerText — LinkedIn wraps each result card
+            // in one big anchor, so innerText contains name + headline + location.
+            const text = a.innerText.trim();
+
+            // Name: first non-empty line that isn't a bullet / degree indicator
+            const firstLine = text.split('\\n')
+                .map(l => l.trim())
+                .find(l => l && !l.startsWith('•') && l !== '1st' && l !== '2nd' && l !== '3rd+') || '';
+
+            results.push({ url: href, name: firstLine, text: text });
         });
-        return results.slice(0, 20);  // cap to first 20 links on page
+
+        return results.slice(0, 20);
     }""")
 
     _RECRUIT_KWS = {"recruit", "talent", "hiring", "sourcer", "acquisition", "staffing"}
 
     profiles: list[RecruiterProfile] = []
+    _NOISE = {"connect", "follow", "message", "view profile", "dismiss",
+              "1st", "2nd", "3rd+", "•", "premium", "open to work"}
+
     for card in cards_data:
         url = card.get("url", "")
         text = card.get("text", "")
-        if not url or not text:
+        name = card.get("name", "").strip()
+        if not url:
             continue
 
+        # Parse all meaningful lines from the anchor's full card text.
+        # Typical order: Name / "• 2nd" / Headline / Location / "Connect" / ...
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        # Remove degree indicators (• 2nd, • 3rd+) and UI noise lines
-        _NOISE = {"connect", "follow", "message", "view profile", "dismiss", "1st", "2nd", "3rd+", "•"}
         lines = [ln for ln in lines if ln.lower() not in _NOISE and not ln.startswith("•")]
-        if not lines:
-            continue
 
-        # First non-noise line is the name
-        name = lines[0]
-        headline = lines[1] if len(lines) > 1 else ""
-        location = lines[2] if len(lines) > 2 else ""
+        # Name is already extracted in JS (first non-bullet line); ensure it's set.
+        if not name and lines:
+            name = lines[0]
+
+        # Headline: first line that is NOT the name
+        other_lines = [ln for ln in lines if ln != name]
+        headline = other_lines[0] if other_lines else ""
+        location = other_lines[1] if len(other_lines) > 1 else ""
 
         # Skip non-recruiters
         if not any(kw in headline.lower() for kw in _RECRUIT_KWS):
