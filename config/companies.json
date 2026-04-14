@@ -1,0 +1,146 @@
+{
+  "companies": [
+    {
+      "name": "Google",
+      "careers_url": "https://careers.google.com/jobs/results/?q=senior+software+engineer&location=United+States&employment_type=FULL_TIME",
+      "known_h1b_sponsor": true,
+      "tier": 1,
+      "focus": "distributed systems, AI/ML infrastructure, platform engineering"
+    },
+    {
+      "name": "Meta",
+      "careers_url": "https://www.metacareers.com/jobs/?q=senior+software+engineer&teams[0]=Engineering",
+      "known_h1b_sponsor": true,
+      "tier": 1,
+      "focus": "backend infrastructure, AI platform, messaging systems",
+      "api_type": "meta_graphql"
+    },
+    {
+      "name": "Apple",
+      "careers_url": "https://jobs.apple.com/en-us/search?search=senior+software+engineer&sort=newest&location=united-states-USA",
+      "known_h1b_sponsor": true,
+      "tier": 1,
+      "focus": "platform services, backend systems, developer tools",
+      "api_type": "apple"
+    },
+    {
+      "name": "Microsoft",
+      "careers_url": "https://careers.microsoft.com/v2/global/en/search.html#q=senior%20software%20engineer&p=Software%20Engineering&l=en_US",
+      "known_h1b_sponsor": true,
+      "tier": 1,
+      "focus": "Azure, developer tools, AI/Copilot platform"
+    },
+    {
+      "name": "Netflix",
+      "careers_url": "https://jobs.netflix.com/search?q=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 1,
+      "focus": "streaming platform, microservices, Java/Spring",
+      "api_type": "netflix"
+    },
+    {
+      "name": "Nvidia",
+      "careers_url": "https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/jobs?q=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 1,
+      "focus": "GPU compute, AI infrastructure, platform software"
+    },
+    {
+      "name": "Uber",
+      "careers_url": "https://www.uber.com/us/en/careers/list/?query=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "distributed systems, Java/Go backend, real-time data"
+    },
+    {
+      "name": "Airbnb",
+      "careers_url": "https://careers.airbnb.com/positions/?department=engineering",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "platform engineering, backend services, Java",
+      "api_type": "greenhouse",
+      "api_slug": "airbnb"
+    },
+    {
+      "name": "DoorDash",
+      "careers_url": "https://careers.doordash.com/jobs?q=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "microservices, backend systems, Kotlin/Java",
+      "api_type": "greenhouse",
+      "api_slug": "doordash"
+    },
+    {
+      "name": "Databricks",
+      "careers_url": "https://www.databricks.com/company/careers/open-positions?department=Engineering%20-%20Software",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "data platform, distributed compute, Spark/Java/Scala",
+      "api_type": "greenhouse",
+      "api_slug": "databricks"
+    },
+    {
+      "name": "Snowflake",
+      "careers_url": "https://careers.snowflake.com/us/en/search-results?qkeyword=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "cloud data platform, Java backend, distributed storage"
+    },
+    {
+      "name": "Salesforce",
+      "careers_url": "https://careers.salesforce.com/en/jobs/?search=senior+software+engineer&region=North+America",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "CRM platform, Java/Spring, Heroku infrastructure"
+    },
+    {
+      "name": "Adobe",
+      "careers_url": "https://careers.adobe.com/us/en/search-results?qkeyword=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "creative cloud platform, Java services, AI/Firefly"
+    },
+    {
+      "name": "LinkedIn",
+      "careers_url": "https://careers.linkedin.com/",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "social graph backend, Java/Scala, data platform"
+    },
+    {
+      "name": "Lyft",
+      "careers_url": "https://www.lyft.com/careers/job-openings?search=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "ride-sharing platform, backend services, Python/Java"
+    },
+    {
+      "name": "Anthropic",
+      "careers_url": "https://www.anthropic.com/careers",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "AI safety, LLM infrastructure, platform engineering"
+    },
+    {
+      "name": "OpenAI",
+      "careers_url": "https://openai.com/careers",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "AI platform, backend infrastructure, developer APIs"
+    },
+    {
+      "name": "Palantir",
+      "careers_url": "https://www.palantir.com/careers/teams/software/",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "data platform, Java backend, distributed systems"
+    },
+    {
+      "name": "Stripe",
+      "careers_url": "https://stripe.com/jobs/search?q=senior+software+engineer",
+      "known_h1b_sponsor": true,
+      "tier": 2,
+      "focus": "payments infrastructure, Java/Ruby backend, distributed systems"
+    }
+  ]
+}
