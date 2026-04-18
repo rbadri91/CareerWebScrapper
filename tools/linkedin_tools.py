@@ -17,6 +17,7 @@ import logging
 import math
 import os
 import random
+import re
 from urllib.parse import quote_plus
 
 from playwright.async_api import async_playwright, Page, TimeoutError as PWTimeout
@@ -370,3 +371,219 @@ async def search_recruiters(
 
     logger.info("LinkedIn recruiter search complete — %d total", len(all_profiles))
     return all_profiles[:max_total]
+
+
+# ──────────────────────────────────────────────
+# Existing connections scan
+# ──────────────────────────────────────────────
+
+async def _get_profile_email(page: Page, profile_url: str) -> str:
+    """Visit a LinkedIn profile and extract email from the Contact info modal."""
+    try:
+        await page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(random.randint(2000, 3500))
+
+        # LinkedIn renders the Contact info as a link pointing to the overlay
+        contact_sels = [
+            'a[href*="overlay/contact-info"]',
+            'a[id*="contact-info"]',
+            'button:has-text("Contact info")',
+        ]
+        clicked = False
+        for sel in contact_sels:
+            try:
+                el = page.locator(sel).first
+                if await el.is_visible(timeout=3000):
+                    await el.click()
+                    clicked = True
+                    break
+            except Exception:
+                continue
+
+        if not clicked:
+            return ""
+
+        await page.wait_for_timeout(random.randint(1000, 2000))
+
+        email: str = await page.evaluate("""() => {
+            // Prefer explicit mailto: links
+            const mailto = document.querySelector('a[href^="mailto:"]');
+            if (mailto) return mailto.href.replace('mailto:', '').trim();
+
+            // Fallback: sections with "Email" header
+            const sections = document.querySelectorAll('section.pv-contact-info__contact-type, li.pv-contact-info__list-item');
+            for (const s of sections) {
+                const h = s.querySelector('h3');
+                if (h && h.textContent.toLowerCase().includes('email')) {
+                    const a = s.querySelector('a');
+                    if (a) return a.textContent.trim();
+                }
+            }
+            return '';
+        }""")
+
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
+
+        return email or ""
+    except Exception as exc:
+        logger.warning("Could not fetch contact info from %s: %s", profile_url, exc)
+        return ""
+
+
+async def scan_existing_connections(
+    companies: list[str] | None = None,
+    max_results: int = 100,
+) -> list[RecruiterProfile]:
+    """
+    Search the user's 1st-degree LinkedIn connections for recruiters.
+
+    Filters results to profiles with recruiter-related titles, optionally
+    narrowed to a list of target companies. Visits each profile to extract
+    a contact email where available.
+
+    Returns RecruiterProfile objects with is_existing_connection=True and
+    connection_degree="1st".
+    """
+    profiles: list[RecruiterProfile] = []
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=False,
+            slow_mo=120,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--window-size=1280,900",
+            ],
+        )
+        context = await browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 900},
+        )
+        page = await context.new_page()
+
+        logged_in = await _login(page)
+        if not logged_in:
+            await browser.close()
+            logger.error("Could not log into LinkedIn — skipping connection scan")
+            return []
+
+        await page.wait_for_timeout(random.randint(2000, 3500))
+
+        # Build keyword query: "recruiter" + optional company names
+        company_clause = ""
+        if companies:
+            company_clause = " " + " OR ".join(f'"{c}"' for c in companies[:5])
+        keywords = quote_plus(f"recruiter{company_clause}")
+
+        # facetNetwork=["F"] restricts to 1st-degree connections
+        url = (
+            "https://www.linkedin.com/search/results/people/"
+            f"?keywords={keywords}"
+            "&facetNetwork=%5B%22F%22%5D"
+            "&origin=FACETED_SEARCH"
+        )
+
+        logger.info("Scanning 1st-degree connections for recruiters...")
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_timeout(random.randint(4000, 6000))
+        await _scroll_results(page, times=4)
+
+        raw_cards: list[dict] = await page.evaluate("""() => {
+            const results = [];
+            const seenUrls = new Set();
+
+            function hasAnchorAncestor(el) {
+                let p = el.parentElement;
+                while (p) {
+                    if (p.tagName === 'A') return true;
+                    p = p.parentElement;
+                }
+                return false;
+            }
+
+            const allLinks = document.querySelectorAll('a[href*="/in/"]');
+            allLinks.forEach(a => {
+                if (hasAnchorAncestor(a)) return;
+                const href = a.href.split('?')[0];
+                if (!href.includes('/in/') || seenUrls.has(href)) return;
+                seenUrls.add(href);
+                const text = a.innerText.trim();
+                const firstLine = text.split('\\n')
+                    .map(l => l.trim())
+                    .find(l => l && !l.startsWith('•') && l !== '1st' && l !== '2nd' && l !== '3rd+') || '';
+                results.push({ url: href, name: firstLine, text: text });
+            });
+            return results.slice(0, 60);
+        }""")
+
+        _RECRUIT_KWS = {"recruit", "talent", "hiring", "sourcer", "acquisition", "staffing"}
+        _NOISE = {"connect", "follow", "message", "view profile", "dismiss",
+                  "1st", "2nd", "3rd+", "•", "premium", "open to work"}
+
+        candidates: list[RecruiterProfile] = []
+
+        for card in raw_cards:
+            url_val = card.get("url", "")
+            text = card.get("text", "")
+            name = card.get("name", "").strip()
+            if not url_val or len(name) < 3:
+                continue
+
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            lines = [ln for ln in lines if ln.lower() not in _NOISE and not ln.startswith("•")]
+
+            other_lines = [ln for ln in lines if ln != name]
+            headline = other_lines[0] if other_lines else ""
+            location = other_lines[1] if len(other_lines) > 1 else ""
+
+            if not any(kw in headline.lower() for kw in _RECRUIT_KWS):
+                continue
+
+            # Attempt to derive company from headline ("Recruiter at Google" / "@ Meta")
+            company_name = ""
+            if companies:
+                for c in companies:
+                    if c.lower() in headline.lower() or c.lower() in text.lower():
+                        company_name = c
+                        break
+            if not company_name:
+                m = re.search(r'(?:at|@)\s+([A-Z][^\n,|·]{2,30})', headline)
+                if m:
+                    company_name = m.group(1).strip()
+
+            candidates.append(RecruiterProfile(
+                name=name,
+                title=headline,
+                company=company_name,
+                linkedin_url=url_val,
+                location=location,
+                connection_degree="1st",
+                is_existing_connection=True,
+            ))
+
+        logger.info(
+            "Found %d recruiter connections; fetching contact emails...",
+            len(candidates),
+        )
+
+        for i, prof in enumerate(candidates[:max_results]):
+            if i > 0:
+                await page.wait_for_timeout(random.randint(3000, 5000))
+            email = await _get_profile_email(page, prof.linkedin_url)
+            if email:
+                logger.info("Email for %s: %s", prof.name, email)
+                prof.email = email
+            profiles.append(prof)
+
+        await browser.close()
+
+    logger.info("Connection scan complete — %d recruiters", len(profiles))
+    return profiles

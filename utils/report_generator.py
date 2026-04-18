@@ -23,12 +23,14 @@ def _job_table(jobs: list[JobListing]) -> str:
 def _recruiter_table(recruiters: list[RecruiterProfile]) -> str:
     if not recruiters:
         return "_No recruiters found._\n"
-    rows = ["| Name | Title | Company | LinkedIn | Degree |",
-            "|------|-------|---------|----------|--------|"]
+    rows = ["| Name | Title | Company | LinkedIn | Degree | Email |",
+            "|------|-------|---------|----------|--------|-------|"]
     for r in recruiters:
         link = f"[Profile]({r.linkedin_url})" if r.linkedin_url else "N/A"
+        degree = ("**1st ✓**" if r.is_existing_connection else r.connection_degree) or "N/A"
+        email = r.email or "—"
         rows.append(
-            f"| {r.name} | {r.title or 'N/A'} | {r.company} | {link} | {r.connection_degree or 'N/A'} |"
+            f"| {r.name} | {r.title or 'N/A'} | {r.company} | {link} | {degree} | {email} |"
         )
     return "\n".join(rows) + "\n"
 
@@ -82,12 +84,33 @@ def generate_report(result: SearchResult, output_dir: str = "outputs") -> str:
         "",
         "---",
         "",
-        "## Drafted Outreach Messages",
-        "",
     ]
 
-    if result.outreach_messages:
-        for msg in result.outreach_messages:
+    email_msgs = [m for m in result.outreach_messages if m.channel == "email"]
+    linkedin_msgs = [m for m in result.outreach_messages if m.channel != "email"]
+
+    lines += ["## Email Outreach Drafts (Existing Connections)", ""]
+    if email_msgs:
+        for msg in email_msgs:
+            lines += [
+                f"### To: {msg.recruiter.name} @ {msg.recruiter.company}",
+                f"**Send to:** {msg.recruiter.email}  ",
+                f"**LinkedIn:** {msg.recruiter.linkedin_url}  ",
+                f"**Role:** {msg.job_title}",
+                "",
+                f"**Subject:** {msg.subject}",
+                "",
+                msg.message,
+                "",
+                "---",
+                "",
+            ]
+    else:
+        lines.append("_No existing-connection recruiters with emails found._\n")
+
+    lines += ["## LinkedIn Connection Request Messages", ""]
+    if linkedin_msgs:
+        for msg in linkedin_msgs:
             lines += [
                 f"### To: {msg.recruiter.name} @ {msg.recruiter.company}",
                 f"**Role:** {msg.job_title}  ",
@@ -98,7 +121,7 @@ def generate_report(result: SearchResult, output_dir: str = "outputs") -> str:
                 "",
             ]
     else:
-        lines.append("_No outreach messages generated._\n")
+        lines.append("_No LinkedIn connection messages generated._\n")
 
     if result.errors:
         lines += ["---", "", "## Errors / Warnings", ""]

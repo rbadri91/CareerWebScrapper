@@ -37,6 +37,7 @@ class RecruiterProfile(BaseModel):
     location: str = ""
     connection_degree: str = ""
     profile_summary: str = ""
+    is_existing_connection: bool = False
 
 
 class OutreachMessage(BaseModel):
@@ -44,6 +45,7 @@ class OutreachMessage(BaseModel):
     job_title: str
     subject: str = ""
     message: str
+    channel: str = "linkedin"  # "linkedin" or "email"
     character_count: int = 0
 
     def model_post_init(self, __context):
