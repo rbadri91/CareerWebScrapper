@@ -6,7 +6,6 @@ Prioritises companies where high-scoring jobs were found so outreach
 messages are as targeted as possible.
 """
 
-import asyncio
 import logging
 
 from agents.base_agent import BaseAgent
@@ -48,29 +47,28 @@ class RecruiterAgent(BaseAgent):
         ordered = self._rank_companies(companies, top_jobs or [])
         self.logger.info("Recruiter search order: %s", ", ".join(ordered[:8]))
 
-        # Run public recruiter search and connection scan concurrently.
-        # Both open their own browser session, so they can't share a page.
-        public_task = search_recruiters(
-            companies=ordered,
-            max_per_company=max_per_company,
-            max_total=max_total,
-        )
-        connection_task = scan_existing_connections(
-            companies=companies,
-            max_results=50,
-        )
-
-        public_results, connection_results = await asyncio.gather(
-            public_task, connection_task, return_exceptions=True
-        )
-
-        # Handle exceptions from either task gracefully
-        if isinstance(public_results, Exception):
-            self.logger.error("Public recruiter search failed: %s", public_results)
-            public_results = []
-        if isinstance(connection_results, Exception):
-            self.logger.error("Connection scan failed: %s", connection_results)
+        # Run sequentially — both tasks open a browser and log into the same
+        # LinkedIn account. Parallel sessions trigger LinkedIn's concurrent-login
+        # detection, which throttles or degrades search results for one session.
+        # Connection scan first (faster — scoped to your own network), then public.
+        try:
+            connection_results = await scan_existing_connections(
+                companies=companies,
+                max_results=50,
+            )
+        except Exception as exc:
+            self.logger.error("Connection scan failed: %s", exc)
             connection_results = []
+
+        try:
+            public_results = await search_recruiters(
+                companies=ordered,
+                max_per_company=max_per_company,
+                max_total=max_total,
+            )
+        except Exception as exc:
+            self.logger.error("Public recruiter search failed: %s", exc)
+            public_results = []
 
         # Merge: existing connections take priority on duplicate URLs
         seen_urls: dict[str, RecruiterProfile] = {}

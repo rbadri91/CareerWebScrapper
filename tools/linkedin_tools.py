@@ -477,97 +477,92 @@ async def scan_existing_connections(
 
         await page.wait_for_timeout(random.randint(2000, 3500))
 
-        # Build keyword query: "recruiter" + optional company names
-        company_clause = ""
-        if companies:
-            company_clause = " " + " OR ".join(f'"{c}"' for c in companies[:5])
-        keywords = quote_plus(f"recruiter{company_clause}")
+        _RECRUIT_KWS = {"recruit", "talent", "hiring", "sourcer", "acquisition", "staffing"}
+        _NOISE = {"connect", "follow", "message", "view profile", "dismiss",
+                  "1st", "2nd", "3rd+", "•", "premium", "open to work"}
 
-        # facetNetwork=["F"] restricts to 1st-degree connections
-        url = (
-            "https://www.linkedin.com/search/results/people/"
-            f"?keywords={keywords}"
-            "&facetNetwork=%5B%22F%22%5D"
-            "&origin=FACETED_SEARCH"
-        )
-
-        logger.info("Scanning 1st-degree connections for recruiters...")
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        await page.wait_for_timeout(random.randint(4000, 6000))
-        await _scroll_results(page, times=4)
-
-        raw_cards: list[dict] = await page.evaluate("""() => {
+        JS_EXTRACT = """() => {
             const results = [];
             const seenUrls = new Set();
-
             function hasAnchorAncestor(el) {
                 let p = el.parentElement;
-                while (p) {
-                    if (p.tagName === 'A') return true;
-                    p = p.parentElement;
-                }
+                while (p) { if (p.tagName === 'A') return true; p = p.parentElement; }
                 return false;
             }
-
-            const allLinks = document.querySelectorAll('a[href*="/in/"]');
-            allLinks.forEach(a => {
+            document.querySelectorAll('a[href*="/in/"]').forEach(a => {
                 if (hasAnchorAncestor(a)) return;
                 const href = a.href.split('?')[0];
                 if (!href.includes('/in/') || seenUrls.has(href)) return;
                 seenUrls.add(href);
                 const text = a.innerText.trim();
-                const firstLine = text.split('\\n')
-                    .map(l => l.trim())
+                const firstLine = text.split('\\n').map(l => l.trim())
                     .find(l => l && !l.startsWith('•') && l !== '1st' && l !== '2nd' && l !== '3rd+') || '';
                 results.push({ url: href, name: firstLine, text: text });
             });
-            return results.slice(0, 60);
-        }""")
+            return results.slice(0, 30);
+        }"""
 
-        _RECRUIT_KWS = {"recruit", "talent", "hiring", "sourcer", "acquisition", "staffing"}
-        _NOISE = {"connect", "follow", "message", "view profile", "dismiss",
-                  "1st", "2nd", "3rd+", "•", "premium", "open to work"}
-
+        search_companies = companies if companies else [""]
+        seen_urls: set[str] = set()
         candidates: list[RecruiterProfile] = []
 
-        for card in raw_cards:
-            url_val = card.get("url", "")
-            text = card.get("text", "")
-            name = card.get("name", "").strip()
-            if not url_val or len(name) < 3:
-                continue
+        # Search per company — one query each so LinkedIn returns a full page of
+        # results per company rather than a single mixed page that buries some firms.
+        for i, company in enumerate(search_companies):
+            keywords = quote_plus(f"technical recruiter {company}".strip())
+            url = (
+                "https://www.linkedin.com/search/results/people/"
+                f"?keywords={keywords}"
+                "&facetNetwork=%5B%22F%22%5D"
+                "&origin=FACETED_SEARCH"
+            )
+            logger.info("Scanning 1st-degree connections: %s", company or "(all)")
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.wait_for_timeout(random.randint(3000, 5000))
+            await _scroll_results(page, times=3)
 
-            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            lines = [ln for ln in lines if ln.lower() not in _NOISE and not ln.startswith("•")]
+            raw_cards: list[dict] = await page.evaluate(JS_EXTRACT)
 
-            other_lines = [ln for ln in lines if ln != name]
-            headline = other_lines[0] if other_lines else ""
-            location = other_lines[1] if len(other_lines) > 1 else ""
+            for card in raw_cards:
+                url_val = card.get("url", "")
+                text = card.get("text", "")
+                name = card.get("name", "").strip()
+                if not url_val or len(name) < 3 or url_val in seen_urls:
+                    continue
 
-            if not any(kw in headline.lower() for kw in _RECRUIT_KWS):
-                continue
+                lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                lines = [ln for ln in lines if ln.lower() not in _NOISE and not ln.startswith("•")]
 
-            # Attempt to derive company from headline ("Recruiter at Google" / "@ Meta")
-            company_name = ""
-            if companies:
-                for c in companies:
-                    if c.lower() in headline.lower() or c.lower() in text.lower():
-                        company_name = c
-                        break
-            if not company_name:
-                m = re.search(r'(?:at|@)\s+([A-Z][^\n,|·]{2,30})', headline)
-                if m:
-                    company_name = m.group(1).strip()
+                other_lines = [ln for ln in lines if ln != name]
+                headline = other_lines[0] if other_lines else ""
+                location = other_lines[1] if len(other_lines) > 1 else ""
 
-            candidates.append(RecruiterProfile(
-                name=name,
-                title=headline,
-                company=company_name,
-                linkedin_url=url_val,
-                location=location,
-                connection_degree="1st",
-                is_existing_connection=True,
-            ))
+                if not any(kw in headline.lower() for kw in _RECRUIT_KWS):
+                    continue
+
+                # Company: use the query company if it appears in the card, else parse headline
+                company_name = company if company and (
+                    company.lower() in headline.lower() or company.lower() in text.lower()
+                ) else ""
+                if not company_name:
+                    m = re.search(r'(?:at|@)\s+([A-Z][^\n,|·]{2,30})', headline)
+                    if m:
+                        company_name = m.group(1).strip()
+
+                seen_urls.add(url_val)
+                candidates.append(RecruiterProfile(
+                    name=name,
+                    title=headline,
+                    company=company_name,
+                    linkedin_url=url_val,
+                    location=location,
+                    connection_degree="1st",
+                    is_existing_connection=True,
+                ))
+
+            logger.info("Connections so far after %s: %d", company, len(candidates))
+            if i < len(search_companies) - 1:
+                await page.wait_for_timeout(random.randint(4000, 7000))
 
         logger.info(
             "Found %d recruiter connections; fetching contact emails...",
