@@ -22,6 +22,7 @@ from rich.table import Table
 
 from agents.orchestrator import Orchestrator
 from utils.report_generator import generate_report
+from utils.email_sender import send_report
 
 # ──────────────────────────────────────────────
 # Setup
@@ -152,6 +153,9 @@ async def main(args: argparse.Namespace) -> None:
 
     # Generate report
     report_path = generate_report(result)
+
+    # Email report (requires GMAIL_APP_PASSWORD in .env)
+    send_report(report_path)
 
     # Print summary to console
     print_summary(result, report_path)

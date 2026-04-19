@@ -30,6 +30,31 @@ Rules for every message:
 Return ONLY the message text — no subject line, no labels, no explanation.
 """
 
+EMAIL_OUTREACH_SYSTEM = """\
+You are a career coach writing formal job outreach emails for a senior software engineer to send
+to recruiters they are already connected with on LinkedIn.
+
+Candidate: Badrinath Radhakrishnan
+Background: 10+ years Java/Python backend engineer. Currently Senior SWE at Goldman Sachs where he
+productionized an MCP gateway on Kubernetes enabling secure LLM tool orchestration — early enterprise
+GenAI platform engineering. Previously at Amazon (distributed payment services, Spring Boot/AWS).
+Visa: Requires H-1B sponsorship.
+
+Rules for every email:
+1. Formal, professional tone — warm but not casual; acknowledge the existing connection
+2. 150–250 words in the body — concise but complete
+3. Opening line references the existing LinkedIn connection naturally
+4. Paragraph 1: State interest in a specific role at the recruiter's company
+5. Paragraph 2: Highlight 2–3 relevant technical achievements (match the company's stack)
+6. Closing: Clear ask — request a conversation or referral to the right hiring team
+8. Sign off as: Badrinath Radhakrishnan
+
+Output format — return EXACTLY two sections separated by a blank line:
+SUBJECT: <subject line>
+BODY:
+<email body>
+"""
+
 
 class OutreachAgent(BaseAgent):
     """Generates personalized outreach messages for recruiters."""
@@ -42,6 +67,10 @@ class OutreachAgent(BaseAgent):
     ) -> list[OutreachMessage]:
         """
         Generate outreach messages for a list of recruiters.
+
+        Existing connections with an email get a full email draft (channel="email").
+        All others get a short LinkedIn connection request (channel="linkedin").
+        Email drafts are placed first in the returned list.
 
         Args:
             recruiters: list of RecruiterProfile objects
@@ -58,17 +87,32 @@ class OutreachAgent(BaseAgent):
             if key not in company_job:
                 company_job[key] = job.title
 
-        messages: list[OutreachMessage] = []
+        email_messages: list[OutreachMessage] = []
+        linkedin_messages: list[OutreachMessage] = []
+        email_per_company: dict[str, int] = {}
 
         for recruiter in recruiters[:max_messages]:
             job_title = company_job.get(
                 recruiter.company.lower(), "Senior Software Engineer"
             )
-            message = self._generate_message(recruiter, job_title)
-            if message:
-                messages.append(message)
+            if recruiter.is_existing_connection and recruiter.email:
+                company_key = recruiter.company.lower()
+                if email_per_company.get(company_key, 0) >= 5:
+                    continue
+                msg = self._generate_email(recruiter, job_title)
+                if msg:
+                    email_per_company[company_key] = email_per_company.get(company_key, 0) + 1
+                    email_messages.append(msg)
+            else:
+                msg = self._generate_message(recruiter, job_title)
+                if msg:
+                    linkedin_messages.append(msg)
 
-        self.logger.info("Generated %d outreach messages", len(messages))
+        messages = email_messages + linkedin_messages
+        self.logger.info(
+            "Generated %d outreach messages (%d email, %d LinkedIn)",
+            len(messages), len(email_messages), len(linkedin_messages),
+        )
         return messages
 
     def _generate_message(
@@ -102,6 +146,48 @@ class OutreachAgent(BaseAgent):
             self.logger.error(
                 "Failed to generate message for %s @ %s: %s",
                 recruiter.name, recruiter.company, exc
+            )
+            return None
+
+    def _generate_email(
+        self, recruiter: RecruiterProfile, job_title: str
+    ) -> OutreachMessage | None:
+        prompt = (
+            f"Recruiter name: {recruiter.name}\n"
+            f"Recruiter title: {recruiter.title}\n"
+            f"Company: {recruiter.company}\n"
+            f"Company focus area: {self._company_focus(recruiter.company)}\n"
+            f"Role I am targeting: {job_title}\n"
+            f"Recruiter email: {recruiter.email}\n"
+        )
+        try:
+            response = self.client.messages.create(
+                model=self.MODEL_FAST,
+                max_tokens=600,
+                system=EMAIL_OUTREACH_SYSTEM,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.content[0].text.strip()
+
+            # Parse "SUBJECT: ..." and "BODY:\n..." from the response
+            subject = ""
+            body = raw
+            if "SUBJECT:" in raw and "BODY:" in raw:
+                subject_line = raw.split("BODY:")[0]
+                subject = subject_line.replace("SUBJECT:", "").strip()
+                body = raw.split("BODY:", 1)[1].strip()
+
+            return OutreachMessage(
+                recruiter=recruiter,
+                job_title=job_title,
+                subject=subject,
+                message=body,
+                channel="email",
+            )
+        except Exception as exc:
+            self.logger.error(
+                "Failed to generate email for %s @ %s: %s",
+                recruiter.name, recruiter.company, exc,
             )
             return None
 

@@ -25,6 +25,7 @@ from tools.ats_api_fetcher import (
     fetch_netflix_jobs,
 )
 from tools.career_page_scraper import scrape_career_page
+from tools.job_board_scraper import search_jobs_for_company
 
 logger = logging.getLogger(__name__)
 
@@ -69,22 +70,51 @@ class CareerPageAgent(BaseAgent):
             for company, result in zip(api_companies, api_results):
                 if isinstance(result, Exception):
                     self.logger.error("API fetch failed for %s: %s", company["name"], result)
+                    jobs_from_api = []
                 else:
-                    all_jobs.extend(result)
+                    jobs_from_api = result
+                    all_jobs.extend(jobs_from_api)
+
+                # Fallback: if API returned nothing, search job boards for recent listings
+                if not jobs_from_api:
+                    self.logger.info(
+                        "API returned 0 for %s — falling back to job boards (last 2 days)",
+                        company["name"],
+                    )
+                    fallback = await search_jobs_for_company(
+                        company=company["name"],
+                        known_h1b_sponsor=company.get("known_h1b_sponsor", True),
+                        days=2,
+                    )
+                    all_jobs.extend(fallback)
 
         # ── Browser companies: run sequentially (one visible window at a time) ──
         for company in browser_companies:
             self.logger.info("→ Browser: %s", company["name"])
+            jobs_from_browser: list = []
             try:
-                jobs = await scrape_career_page(
+                jobs_from_browser = await scrape_career_page(
                     company_name=company["name"],
                     career_url=company["careers_url"],
                     role_keywords=role_keywords,
                     known_h1b_sponsor=company.get("known_h1b_sponsor", False),
                 )
-                all_jobs.extend(jobs)
+                all_jobs.extend(jobs_from_browser)
             except Exception as exc:
                 self.logger.error("Browser scrape failed for %s: %s", company["name"], exc)
+
+            # Fallback: if browser scrape returned nothing, try job boards
+            if not jobs_from_browser:
+                self.logger.info(
+                    "Browser scrape returned 0 for %s — falling back to job boards (last 2 days)",
+                    company["name"],
+                )
+                fallback = await search_jobs_for_company(
+                    company=company["name"],
+                    known_h1b_sponsor=company.get("known_h1b_sponsor", True),
+                    days=2,
+                )
+                all_jobs.extend(fallback)
 
         self.logger.info("Total jobs before scoring: %d", len(all_jobs))
 

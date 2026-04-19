@@ -8,6 +8,15 @@
       "focus": "distributed systems, AI/ML infrastructure, platform engineering"
     },
     {
+      "name": "Amazon",
+      "scraper": "api",
+      "ats": "amazon",
+      "careers_url": "https://www.amazon.jobs/en/search?base_query=senior+software+engineer&loc_query=United+States&job_type=Full-Time",
+      "known_h1b_sponsor": true,
+      "tier": 1,
+      "focus": "AWS distributed services, Java microservices, high-availability systems"
+    },
+    {
       "name": "Meta",
       "careers_url": "https://www.metacareers.com/jobs/?q=senior+software+engineer&teams[0]=Engineering",
       "known_h1b_sponsor": true,

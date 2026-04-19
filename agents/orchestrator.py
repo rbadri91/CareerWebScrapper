@@ -263,14 +263,36 @@ class Orchestrator(BaseAgent):
                 }
 
             elif tool_name == "find_recruiters":
-                # Build company list from all jobs found so far if not provided
-                companies = inputs.get("companies") or []
+                # Always derive companies from jobs found — never trust Claude's
+                # input list, which it picks conservatively and misses companies.
+                seen_raw: set[str] = set()
+                raw_companies: list[str] = []
+                for j in self.result.top_jobs(30):
+                    if j.company not in seen_raw:
+                        raw_companies.append(j.company)
+                        seen_raw.add(j.company)
+
+                # Map raw job-board strings → clean canonical config names via
+                # bidirectional substring match (handles "NVIDIASanta Clara…",
+                # "Amazon Development Center U.S., Inc.", "GitHub, Inc.", etc.)
+                canonical_map = {c["name"].lower(): c["name"] for c in self.companies_config}
+                companies = []
+                seen_canonical: set[str] = set()
+                for raw in raw_companies:
+                    raw_lower = raw.lower()
+                    matched = None
+                    for key, canonical in canonical_map.items():
+                        if key in raw_lower or raw_lower in key:
+                            matched = canonical
+                            break
+                    if matched and matched not in seen_canonical:
+                        companies.append(matched)
+                        seen_canonical.add(matched)
+
                 if not companies:
-                    seen: set[str] = set()
-                    for j in self.result.top_jobs(30):
-                        if j.company not in seen:
-                            companies.append(j.company)
-                            seen.add(j.company)
+                    logger.warning("find_recruiters: no target companies matched — skipping")
+                    return {"status": "success", "recruiters_found": 0, "sample": []}
+
                 recruiters = await self._recruiter_agent.run(
                     companies=companies,
                     top_jobs=self.result.top_jobs(20),

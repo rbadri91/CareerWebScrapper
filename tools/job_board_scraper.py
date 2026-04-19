@@ -66,7 +66,7 @@ async def search_linkedin_jobs(
         "location": location,
         "f_E": LINKEDIN_SENIORITY,
         "f_JT": "F",          # Full-time only
-        "f_TPR": "r604800",   # Posted in last 7 days
+        "f_TPR": "r172800",   # Posted in last 2 days
         "sortBy": "DD",       # Most recent
     }
     url = LINKEDIN_BASE + "?" + urlencode(params)
@@ -137,6 +137,7 @@ async def search_indeed_jobs(
         "sort": "date",
         "jt": "fulltime",
         "explvl": "experienced_level",
+        "fromage": "2",   # posted in last 2 days
     }
     url = INDEED_BASE + "?" + urlencode(params)
     logger.info("Indeed search: %s", url)
@@ -182,6 +183,131 @@ async def search_indeed_jobs(
 
     logger.info("Indeed returned %d jobs", len(listings))
     return listings
+
+
+# ──────────────────────────────────────────────
+# Company-specific fallback search (recent jobs only)
+# ──────────────────────────────────────────────
+
+async def search_jobs_for_company(
+    company: str,
+    title: str = "Senior Software Engineer",
+    days: int = 2,
+    max_results: int = 15,
+    known_h1b_sponsor: bool = True,
+) -> list[JobListing]:
+    """
+    Search LinkedIn and Indeed for a specific company's recent job postings.
+    Used as a fallback when career page scraping returns 0 results.
+
+    Args:
+        company:           company name (e.g. "Microsoft")
+        title:             job title to search
+        days:              recency window (1 or 2 days)
+        max_results:       cap on results from each board
+        known_h1b_sponsor: flag to pre-set on returned listings
+    """
+    seconds = days * 86400
+    all_jobs: list[JobListing] = []
+
+    # LinkedIn: company keyword + seniority + recency filter
+    try:
+        li_params = {
+            "keywords": f"{title} {company}",
+            "f_E": LINKEDIN_SENIORITY,
+            "f_JT": "F",
+            "f_TPR": f"r{seconds}",
+            "sortBy": "DD",
+        }
+        li_url = LINKEDIN_BASE + "?" + urlencode(li_params)
+        logger.info("LinkedIn fallback for %s: %s", company, li_url)
+        html = await _get_page_html(li_url)
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
+            cards = soup.find_all("div", class_=re.compile(r"job-search-card|base-card"))
+            if not cards:
+                cards = soup.find_all("li", class_=re.compile(r"jobs-search"))
+            for card in cards[:max_results]:
+                try:
+                    title_el    = card.find(["h3", "h4"], class_=re.compile(r"title|job-title"))
+                    company_el  = card.find(["h4", "a"],  class_=re.compile(r"company|subtitle"))
+                    location_el = card.find(class_=re.compile(r"location|metadata-item"))
+                    link_el     = card.find("a", href=True)
+                    job_title   = title_el.get_text(strip=True)   if title_el    else ""
+                    job_company = company_el.get_text(strip=True)  if company_el  else company
+                    job_loc     = location_el.get_text(strip=True) if location_el else ""
+                    job_url     = link_el["href"].split("?")[0]    if link_el     else ""
+                    if not job_title:
+                        continue
+                    all_jobs.append(JobListing(
+                        title=job_title, company=job_company, location=job_loc,
+                        url=job_url, source=JobSource.LINKEDIN,
+                        known_h1b_sponsor=known_h1b_sponsor,
+                    ))
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.warning("LinkedIn fallback failed for %s: %s", company, exc)
+
+    # Indeed: company name + recency (fromage = days)
+    try:
+        ind_params = {
+            "q": f'"{title}" "{company}"',
+            "sort": "date",
+            "jt": "fulltime",
+            "fromage": str(days),
+        }
+        ind_url = INDEED_BASE + "?" + urlencode(ind_params)
+        logger.info("Indeed fallback for %s: %s", company, ind_url)
+        html = await _get_page_html(ind_url)
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
+            cards = soup.find_all("div", class_=re.compile(r"job_seen_beacon|jobCard|resultContent"))
+            for card in cards[:max_results]:
+                try:
+                    title_el    = card.find(["h2", "span"], class_=re.compile(r"jobTitle|title"))
+                    company_el  = card.find(class_=re.compile(r"companyName|company"))
+                    location_el = card.find(class_=re.compile(r"companyLocation|location"))
+                    link_el     = card.find("a", href=True)
+                    job_title   = title_el.get_text(strip=True)   if title_el    else ""
+                    job_company = company_el.get_text(strip=True)  if company_el  else company
+                    job_loc     = location_el.get_text(strip=True) if location_el else ""
+                    href        = link_el["href"] if link_el else ""
+                    job_url     = f"https://www.indeed.com{href}" if href.startswith("/") else href
+                    if not job_title:
+                        continue
+                    h1b = any(kw in card.get_text(" ").lower()
+                              for kw in ["h-1b", "h1b", "visa sponsor", "sponsorship"])
+                    all_jobs.append(JobListing(
+                        title=job_title, company=job_company, location=job_loc,
+                        url=job_url, source=JobSource.INDEED,
+                        h1b_mentioned=h1b, known_h1b_sponsor=known_h1b_sponsor,
+                    ))
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.warning("Indeed fallback failed for %s: %s", company, exc)
+
+    # Keep only listings where the company name matches the target.
+    # Keyword searches (e.g. "Microsoft") can return unrelated companies that
+    # mention Microsoft in their job description or required skills.
+    company_lower = company.lower()
+    all_jobs = [
+        j for j in all_jobs
+        if company_lower in j.company.lower() or j.company.strip() == ""
+    ]
+
+    # Deduplicate by (title, company)
+    seen: set[tuple] = set()
+    unique: list[JobListing] = []
+    for j in all_jobs:
+        key = (j.title.lower(), j.company.lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append(j)
+
+    logger.info("Job board fallback for %s: %d jobs (last %d days)", company, len(unique), days)
+    return unique
 
 
 # ──────────────────────────────────────────────
